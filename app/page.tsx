@@ -1,11 +1,8 @@
 import CompanionCard from "@/components/CompanionCard";
 import CompanionsList from "@/components/CompanionsList";
 import CTA from "@/components/CTA";
-import { Button } from "@/components/ui/button";
-import { recentSessions } from "@/constants";
 import { getAllCompanions, getRecentSessions } from "@/lib/actions/companions.actions";
 import { getSubjectColor } from "@/lib/utils";
-import React from "react";
 
 const Page = async() => {
   const companions = await getAllCompanions({ limit: 3})
