@@ -2,6 +2,7 @@
 
 import { auth } from "@clerk/nextjs/server";
 import { createSupabaseClient } from "@/lib/supabase";
+import { revalidatePath } from "next/cache";
 
 export const createCompanion = async (formData: CreateCompanion) => {
   const { userId: auther } = await auth();
@@ -80,9 +81,9 @@ export const getRecentSessions = async (limit = 10) => {
     .order("created_at", { ascending: false })
     .limit(limit);
 
-  if(error) throw new Error(error.message)
+  if (error) throw new Error(error.message);
 
-  return data.map(({ companions }) => companions)
+  return data.map(({ companions }) => companions);
 };
 
 export const getUserSessions = async (userId: string, limit = 10) => {
@@ -90,11 +91,111 @@ export const getUserSessions = async (userId: string, limit = 10) => {
   const { data, error } = await supabase
     .from("session_history")
     .select(`companions: companion_id (*)`)
-    .eq('user_id', userId)
+    .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(limit);
 
-  if(error) throw new Error(error.message)
+  if (error) throw new Error(error.message);
 
-  return data.map(({ companions }) => companions)
+  return data.map(({ companions }) => companions);
+};
+
+export const getUserCompanions = async (userId: string) => {
+  const supabase = createSupabaseClient();
+  const { data, error } = await supabase
+    .from("companions")
+    .select()
+    .eq("auther", userId);
+
+  if (error) throw new Error(error.message);
+
+  return data;
+};
+
+export const newCompanionPermissions = async () => {
+  const { userId, has } = await auth();
+  const supabase = createSupabaseClient();
+
+  let limit = 0;
+
+  if (has({ plan: "pro" })) {
+    return true;
+  } else if (has({ feature: "3_active_companions" })) {
+    limit = 3;
+  } else if (has({ feature: "10_active_companions" })) {
+    limit = 10;
+  }
+
+  const { data, error } = await supabase
+    .from("companions")
+    .select("id", { count: "exact" })
+    .eq("auther", userId);
+
+  if (error) throw new Error(error.message);
+
+  const companionCount = data?.length;
+
+  if (companionCount >= limit) {
+    return false;
+  } else {
+    return true;
+  }
+};
+
+export const addBookmark = async (companionId: string, path: string) => {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Not authenticated");
+
+  const supabase = createSupabaseClient();
+
+  const { data, error } = await supabase
+    .from("bookmarks")
+    .upsert(
+      { companion_id: companionId, user_id: userId },
+      { onConflict: "user_id,companion_id" }
+    );
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath(path);
+  return data;
+};
+
+export const removeBookmark = async (companionId: string, path: string) => {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Not authenticated");
+
+  const supabase = createSupabaseClient();
+
+  const { data, error } = await supabase
+    .from("bookmarks")
+    .delete()
+    .eq("user_id", userId)
+    .eq("companion_id", companionId);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath(path);
+  return data;
+};
+
+export const getCompanionsWithBookmarkStatus = async (userId: string | null,) => {
+  const supabase = createSupabaseClient();
+
+  const { data, error } = await supabase
+    .from("companions")
+    .select(
+      `
+      *,
+      bookmarks!left(user_id)
+    `
+    )
+    .eq("bookmarks.user_id", userId);
+
+  if (error) throw new Error(error.message);
+
+  return data.map((companion) => ({
+    ...companion,
+    bookmarked: companion.bookmarks.length > 0,
+  }));
 };
