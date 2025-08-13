@@ -2,6 +2,7 @@
 
 import { auth } from "@clerk/nextjs/server";
 import { createSupabaseClient } from "@/lib/supabase";
+import { revalidatePath } from "next/cache";
 
 export const createCompanion = async (formData: CreateCompanion) => {
   const { userId: auther } = await auth();
@@ -129,14 +130,72 @@ export const newCompanionPermissions = async () => {
     .from("companions")
     .select("id", { count: "exact" })
     .eq("auther", userId);
-  
-  if(error) throw new Error(error.message);
+
+  if (error) throw new Error(error.message);
 
   const companionCount = data?.length;
 
-  if(companionCount >= limit){
-    return false
+  if (companionCount >= limit) {
+    return false;
   } else {
-    return true
+    return true;
   }
+};
+
+export const addBookmark = async (companionId: string, path: string) => {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Not authenticated");
+
+  const supabase = createSupabaseClient();
+
+  const { data, error } = await supabase
+    .from("bookmarks")
+    .upsert(
+      { companion_id: companionId, user_id: userId },
+      { onConflict: "user_id,companion_id" }
+    );
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath(path);
+  return data;
+};
+
+export const removeBookmark = async (companionId: string, path: string) => {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Not authenticated");
+
+  const supabase = createSupabaseClient();
+
+  const { data, error } = await supabase
+    .from("bookmarks")
+    .delete()
+    .eq("user_id", userId)
+    .eq("companion_id", companionId);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath(path);
+  return data;
+};
+
+export const getCompanionsWithBookmarkStatus = async (userId: string | null,) => {
+  const supabase = createSupabaseClient();
+
+  const { data, error } = await supabase
+    .from("companions")
+    .select(
+      `
+      *,
+      bookmarks!left(user_id)
+    `
+    )
+    .eq("bookmarks.user_id", userId);
+
+  if (error) throw new Error(error.message);
+
+  return data.map((companion) => ({
+    ...companion,
+    bookmarked: companion.bookmarks.length > 0,
+  }));
 };
